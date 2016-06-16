@@ -179,8 +179,10 @@ class ZFinder:
         # Compute z for all fibers
         
         for i in xrange(specs.shape[0]): # Loop over fibers
-            print 'Fitting fiber %s of %s for template %s' % \
-                    (i+1, specs.shape[0], self.fname)
+            
+            #print 'INFO Fitting fiber %s of %s for template %s' % \
+            #        (i+1, specs.shape[0], self.fname)
+            
             # If flux is all zeros, flag as unplugged according to BOSS
             # zwarning flags and don't bother with doing fit
             if len(n.where(specs[i] != 0.)[0]) == 0:
@@ -202,7 +204,7 @@ class ZFinder:
                 self.f_nulls.append( f_null )
                 self.chi2_null.append( self.sn2_data[i] -
                                       n.dot(n.dot(f_null,pmat[1:,1:,0]),f_null))
-                print 'Chi^2_null value is %s' % self.chi2_null[i]
+                # print 'INFO Chi^2_null value is %s' % self.chi2_null[i]
                 # Loop over templates
                 # multiprocessing
                 func_args = []
@@ -221,85 +223,10 @@ class ZFinder:
                     temp_zwarning[i,j] = result[2]
                 
                 stop=time.clock()
-                print "done one fiber, %d templates, using %d procs in %f sec"%(self.templates_flat.shape[0],self.nproc,stop-start)
                 
                 
-                """
-                 la poubelle
-
+                print "INFO fitted fiber %d/%d, chi2_null=%f, %d templates in %s , using %d procs in %f sec"%(i+1, specs.shape[0],self.chi2_null[i],self.templates_flat.shape[0],self.fname,self.nproc,stop-start)
                 
-               
-                for j in xrange(self.templates_flat.shape[0]):
-                    start=time.clock()
-                    pmat[0,0] = n.fft.ifft(self.t2_fft[j] *
-                                           ivar_fft[i].conj()).real
-                    bvec[0] = n.fft.ifft(self.t_fft[j]*data_fft[i].conj()).real
-                    for ipos in xrange(self.npoly):
-                        pmat[ipos+1,0] = pmat[0,ipos+1] = \
-                                n.fft.ifft(self.t_fft[j] *
-                                           poly_fft[i,ipos].conj()).real
-                    if bounds_set:
-                        for l in n.arange(num_z)*self.npixstep:
-                            try:
-                                f = n.linalg.solve(pmat[:,:,l+zminpix],
-                                                   bvec[:,l+zminpix])
-                                zchi2arr[i,j,(l/self.npixstep)] = \
-                                        self.sn2_data[i] - \
-                                        n.dot(n.dot(f,pmat[:,:,l+zminpix]),f)
-                                if (f[0] < 0):
-                                    temp_zwarning[i,j,
-                                            (l/self.npixstep)] = \
-                                            int(temp_zwarning[i,j,
-                                                      (l/self.npixstep)]) | \
-                                                            flag_val_neg_model
-                                    zchi2arr[i,j,(l/self.npixstep)] = \
-                                            self.chi2_null[i]
-                                    try:
-                                        #f = nnls(pmat[:,:,l+zminpix],
-                                                  #bvec[:,l+zminpix])[0]
-                                        #zchi2arr[i,j,(l/self.npixstep)] =
-                                                #self.sn2_data - \
-                                        n.dot(n.dot(f,pmat[:,:,l+zminpix]),f)
-                                        pass
-                                    except Exception as e:
-                                        print "Except: %r" % e
-                                        zchi2arr[i,j,(l/self.npixstep)] = \
-                                                self.chi2_null[i]
-                            except Exception as e:
-                                print "Exception: %r" % e
-                                zchi2arr[i,j,(l/self.npixstep)] = \
-                                        self.chi2_null[i]
-                    else:
-                        for l in n.arange(num_z)*self.npixstep:
-                            try:
-                                f = n.linalg.solve(pmat[:,:,l],bvec[:,l])
-                                zchi2arr[i,j,(l/self.npixstep)] = \
-                                        self.sn2_data - \
-                                                n.dot(n.dot(f,pmat[:,:,l]),f)
-                                if (f[0] < 0.):
-                                    temp_zwarning[i,j,(l/self.npixstep)] = \
-                                            int(temp_zwarning[
-                                                  i,j,(l/self.npixstep)]) | \
-                                                        flag_val_neg_model
-                                    zchi2arr[i,j,(l/self.npixstep)] = \
-                                            self.chi2_null[i]
-                                    try:
-                                        #f = nnls(pmat[:,:,l],bvec[:,l])[0]
-                                        #zchi2arr[i,j,(l/self.npixstep)] =
-                                        #self.sn2_data - \
-                                        n.dot(n.dot(f,pmat[:,:,l]),f)
-                                        pass
-                                    except Exception as e:
-                                        print "Except: %r" % e
-                                        zchi2arr[i,j,(l/self.npixstep)] = \
-                                                self.chi2_null[i]
-                            except Exception as e:
-                                print "Exception: %r" % e
-                                zchi2arr[i,j,(l/self.npixstep)] = \
-                                        self.chi2_null[i]
-                    stop=time.clock()
-                    print "time to compute min chi2 for 1 template = %f sec (template=%d/%d)"%((stop-start),j,self.templates_flat.shape[0])
-                """
         
         # Use only neg_model flag from best fit model/redshift and add
         # it to self.zwarning
@@ -322,10 +249,10 @@ class ZFinder:
             if (plate is not None) & (mjd is not None) & (fiberid is not None):
                 write_chi2arr(plate, mjd, fiberid, self.zchi2arr)
             else:
-                print 'Plate/mjd/fiberid not given - unable to write chi2 file!'
+                print 'WARNING Plate/mjd/fiberid not given - unable to write chi2 file!'
         else:
-            print 'Not writing chi2'
-
+            #print 'INFO Not writing chi2'
+            pass
 
     def store_models(self, specs, ivar):
         self.models = n.zeros( (specs.shape) )
