@@ -15,11 +15,57 @@ from scipy.optimize import nnls
 import matplotlib as m
 from matplotlib import pyplot as p
 
+import multiprocessing
+import sys
+
 from redmonster.datamgr.ssp_prep import SSPPrep
 from redmonster.physics.misc import poly_array, two_pad
 from redmonster.datamgr.io2 import read_ndArch, write_chi2arr
 
 # Assumes all templates live in $REDMONSTER_DIR/templates/
+
+def _func(arg) :
+    return zchi2_single_template(**arg)
+
+
+def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_pol, bvec_pol, chi2_0, chi2_null, num_z, npixstep, zminpix, bounds_set, flag_val_neg_model) :
+    npoly=poly_fft.shape[0] # degree+1 of polynomial 
+    fftnaxis1=t_fft.shape[0] # number of redshift bins
+    pmat = pmat_pol.copy() # precomputed block for polynomial terms , n.zeros( (npoly+1, npoly+1, fftnaxis1), dtype=float)
+    bvec = bvec_pol.copy() # precomputed vector block for polynomial terms , n.zeros( (npoly+1, fftnaxis1), dtype=float)
+    
+    # fill matrix
+    pmat[0,0] = n.fft.ifft(t2_fft * ivar_fft.conj()).real
+    bvec[0]   = n.fft.ifft(t_fft * data_fft.conj()).real
+    for ipos in xrange(npoly):
+        pmat[ipos+1,0] = pmat[0,ipos+1] = n.fft.ifft(t_fft*poly_fft[ipos].conj()).real
+    
+    # solve for each z
+    if not bounds_set:
+        zminpix=0
+        
+    zchi2arr=n.zeros((num_z))
+    zwarning=n.zeros((num_z))
+    for l in n.arange(num_z)*npixstep:
+        try : # try to solve for this redshift
+            f = n.linalg.solve(pmat[:,:,l+zminpix],bvec[:,l+zminpix])
+            
+            zchi2arr[(l/npixstep)] = chi2_0 - n.dot(n.dot(f,pmat[:,:,l+zminpix]),f) # is this true ?????
+            if f[0]<0 :
+                zwarning[(l/npixstep)] = int(zwarning[(l/npixstep)]) | flag_val_neg_model
+                zchi2arr[(l/npixstep)] = chi2_null
+                try:
+                    n.dot(n.dot(f,pmat[:,:,l+zminpix]),f)
+                except Exception as e:
+                    print "Except: %r" % e
+                    zchi2arr[(l/npixstep)] = chi2_null
+        except : # failure
+            #print "failure"
+            #print sys.exc_info()
+            zchi2arr[(l/npixstep)] = chi2_null
+    return j,zchi2arr,zwarning
+
+
 
 class ZFinder:
     
@@ -134,6 +180,10 @@ class ZFinder:
             if len(n.where(specs[i] != 0.)[0]) == 0:
                 self.zwarning[i] = int(self.zwarning[i]) | flag_val_unplugged
             else: # Otherwise, go ahead and do fit
+
+                import time
+                start=time.clock()
+                
                 for ipos in xrange(self.npoly):
                     bvec[ipos+1] = n.sum( poly_pad[ipos] * data_pad[i] *
                                          ivar_pad[i])
@@ -141,14 +191,43 @@ class ZFinder:
                 for ipos in xrange(self.npoly):
                     for jpos in xrange(self.npoly):
                         pmat[ipos+1,jpos+1] = n.sum( poly_pad[ipos] *
-                                                    poly_pad[jpos] *ivar_pad[i])
+                                                    poly_pad[jpos] *ivar_pad[i]) # CAN GO FASTER HERE (BUT NOT LIMITING = 0.001475
+                stop=time.clock()
+                print "A and B filling for polynomials add. terms = %f sec"%(stop-start)
                 f_null = n.linalg.solve(pmat[1:,1:,0],bvec[1:,0])
                 self.f_nulls.append( f_null )
                 self.chi2_null.append( self.sn2_data[i] -
                                       n.dot(n.dot(f_null,pmat[1:,1:,0]),f_null))
                 print 'Chi^2_null value is %s' % self.chi2_null[i]
                 # Loop over templates
+                # multiprocessing
+                func_args = []
                 for j in xrange(self.templates_flat.shape[0]):
+                    arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"bounds_set":bounds_set,"flag_val_neg_model":flag_val_neg_model}
+                    func_args.append(arguments)
+                
+                start=time.clock()
+                nproc=12 # A CHANGER
+                pool = multiprocessing.Pool(nproc)
+                results = pool.map(_func, func_args)
+                pool.close()
+                pool.join()
+                for result in results :
+                    j                  = result[0]
+                    zchi2arr[i,j]      = result[1]
+                    temp_zwarning[i,j] = result[2]
+                
+                stop=time.clock()
+                print "done one fiber (all templates), with multiprocessing using %d procs in %f sec"%(nproc,stop-start)
+                
+                
+                """
+                 la poubelle
+
+                
+               
+                for j in xrange(self.templates_flat.shape[0]):
+                    start=time.clock()
                     pmat[0,0] = n.fft.ifft(self.t2_fft[j] *
                                            ivar_fft[i].conj()).real
                     bvec[0] = n.fft.ifft(self.t_fft[j]*data_fft[i].conj()).real
@@ -215,6 +294,10 @@ class ZFinder:
                                 print "Exception: %r" % e
                                 zchi2arr[i,j,(l/self.npixstep)] = \
                                         self.chi2_null[i]
+                    stop=time.clock()
+                    print "time to compute min chi2 for 1 template = %f sec (template=%d/%d)"%((stop-start),j,self.templates_flat.shape[0])
+                """
+        
         # Use only neg_model flag from best fit model/redshift and add
         # it to self.zwarning
         for i in xrange(self.zwarning.shape[0]):
