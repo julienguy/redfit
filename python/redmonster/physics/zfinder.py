@@ -17,6 +17,7 @@ from matplotlib import pyplot as p
 
 import multiprocessing
 import sys
+import time
 
 from redmonster.datamgr.ssp_prep import SSPPrep
 from redmonster.physics.misc import poly_array, two_pad
@@ -69,13 +70,16 @@ def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_po
 
 class ZFinder:
     
-    def __init__(self, fname=None, npoly=None, zmin=None, zmax=None):
+    def __init__(self, fname=None, npoly=None, zmin=None, zmax=None, nproc=1):
         self.fname = fname
         self.npoly = npoly if npoly else 4
         self.zmin = float(zmin)
         self.zmax = float(zmax)
+        self.nproc = nproc
         self.pixoffset = None
         self.zchi2arr = None
+        
+        
         try:
             self.templatesdir = environ['REDMONSTER_TEMPLATES_DIR']
         except KeyError as e:
@@ -181,19 +185,17 @@ class ZFinder:
                 self.zwarning[i] = int(self.zwarning[i]) | flag_val_unplugged
             else: # Otherwise, go ahead and do fit
 
-                import time
-                start=time.clock()
-                
                 for ipos in xrange(self.npoly):
                     bvec[ipos+1] = n.sum( poly_pad[ipos] * data_pad[i] *
-                                         ivar_pad[i])
+                                          ivar_pad[i])
+                
+                
                 self.sn2_data.append (n.sum( (specs[i]**2)*ivar[i] ) )
                 for ipos in xrange(self.npoly):
                     for jpos in xrange(self.npoly):
                         pmat[ipos+1,jpos+1] = n.sum( poly_pad[ipos] *
                                                     poly_pad[jpos] *ivar_pad[i]) # CAN GO FASTER HERE (BUT NOT LIMITING = 0.001475
-                stop=time.clock()
-                print "A and B filling for polynomials add. terms = %f sec"%(stop-start)
+                
                 f_null = n.linalg.solve(pmat[1:,1:,0],bvec[1:,0])
                 self.f_nulls.append( f_null )
                 self.chi2_null.append( self.sn2_data[i] -
@@ -206,9 +208,8 @@ class ZFinder:
                     arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"bounds_set":bounds_set,"flag_val_neg_model":flag_val_neg_model}
                     func_args.append(arguments)
                 
-                start=time.clock()
-                nproc=12 # A CHANGER
-                pool = multiprocessing.Pool(nproc)
+                start=time.clock()                
+                pool = multiprocessing.Pool(self.nproc)
                 results = pool.map(_func, func_args)
                 pool.close()
                 pool.join()
@@ -218,7 +219,7 @@ class ZFinder:
                     temp_zwarning[i,j] = result[2]
                 
                 stop=time.clock()
-                print "done one fiber (all templates), with multiprocessing using %d procs in %f sec"%(nproc,stop-start)
+                print "done one fiber, %d templates, using %d procs in %f sec"%(self.templates_flat.shape[0],self.nproc,stop-start)
                 
                 
                 """
