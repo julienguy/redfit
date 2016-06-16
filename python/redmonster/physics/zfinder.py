@@ -70,7 +70,9 @@ def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_po
 
 class ZFinder:
     
+
     def __init__(self, fname=None, npoly=None, zmin=None, zmax=None, nproc=1):
+
         self.fname = fname
         self.npoly = npoly if npoly else 4
         self.zmin = float(zmin)
@@ -78,8 +80,8 @@ class ZFinder:
         self.nproc = nproc
         self.pixoffset = None
         self.zchi2arr = None
-        
-        
+        self.nproc=nproc
+
         try:
             self.templatesdir = environ['REDMONSTER_TEMPLATES_DIR']
         except KeyError as e:

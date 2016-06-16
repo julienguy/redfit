@@ -136,9 +136,11 @@ class ZPicker:
                                     zfitobjs[itemp].minvectors[ifiber][imin])
                         except IndexError as e:
                             print "%r" % e
-                            fibermins.append( \
-                                    n.max(zfitobjs[itemp].chi2vals[ifiber]) / \
-                                    (self.dof[ifiber] - zfindobjs[itemp].npoly))
+                            print "index error in zpicker2.classify_obj for fiber : ",ifiber
+                            #fibermins.append( \
+                            #        n.max(zfitobjs[itemp].chi2vals[ifiber]) / \
+                            #        (self.dof[ifiber] - zfindobjs[itemp].npoly))
+                            fibermins.append(1000.)
                             fiberminvecs.append( (-1,) )
                 # Build tuples of num_z best redshifts and classifications
                 # for this fiber
