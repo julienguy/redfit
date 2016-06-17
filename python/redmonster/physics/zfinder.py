@@ -206,7 +206,9 @@ class ZFinder:
         # Compute z for all fibers
         
         for i in xrange(specs.shape[0]): # Loop over fibers
-            
+
+            start=time.clock()  
+
             #print 'INFO Fitting fiber %s of %s for template %s' % \
             #        (i+1, specs.shape[0], self.fname)
             
@@ -246,7 +248,7 @@ class ZFinder:
                     func_args.append(arguments)
                     
                 
-                start=time.clock()                
+                              
                 pool = multiprocessing.Pool(self.nproc)
                 if self.npoly>0 :
                     results = pool.map(_zchi2, func_args)
@@ -262,9 +264,8 @@ class ZFinder:
                 
                 stop=time.clock()
                 
-                
                 print "INFO fitted fiber %d/%d, chi2_null=%f, %d templates in %s, npoly=%d, using %d procs in %f sec"%(i+1, specs.shape[0],self.chi2_null[i],self.templates_flat.shape[0],self.fname,self.npoly,self.nproc,stop-start)
-                
+        
         
         # Use only neg_model flag from best fit model/redshift and add
         # it to self.zwarning
