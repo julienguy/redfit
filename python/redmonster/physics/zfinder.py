@@ -25,14 +25,14 @@ from redmonster.datamgr.io2 import read_ndArch, write_chi2arr
 
 # Assumes all templates live in $REDMONSTER_DIR/templates/
 
-def _chi2(arg) :
+def _zchi2(arg) :
     return zchi2_single_template(**arg)
 
-def _chi2_no_poly(arg) :
+def _zchi2_no_poly(arg) :
     return zchi2_single_template_no_poly(**arg)
 
 
-def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_pol, bvec_pol, chi2_0, chi2_null, num_z, npixstep, zminpix, bounds_set, flag_val_neg_model) :
+def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_pol, bvec_pol, chi2_0, chi2_null, num_z, npixstep, zminpix, flag_val_neg_model) :
     npoly=poly_fft.shape[0] # degree+1 of polynomial 
     fftnaxis1=t_fft.shape[0] # number of redshift bins
     pmat = pmat_pol.copy() # precomputed block for polynomial terms , n.zeros( (npoly+1, npoly+1, fftnaxis1), dtype=float)
@@ -45,9 +45,7 @@ def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_po
         pmat[ipos+1,0] = pmat[0,ipos+1] = n.fft.ifft(t_fft*poly_fft[ipos].conj()).real
     
     # solve for each z
-    if not bounds_set:
-        zminpix=0
-        
+       
     zchi2arr=n.zeros((num_z))
     zwarning=n.zeros((num_z))
     for l in n.arange(num_z)*npixstep:
@@ -69,12 +67,12 @@ def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_po
             zchi2arr[(l/npixstep)] = chi2_null
     return j,zchi2arr,zwarning
 
-def zchi2_single_template_no_poly(j,t_fft, t2_fft, data_fft, ivar_fft, chi2_0, num_z, npixstep, flag_val_neg_model) :
+def zchi2_single_template_no_poly(j,t_fft, t2_fft, data_fft, ivar_fft, chi2_0, num_z, npixstep, zminpix, flag_val_neg_model) :
     
     a = n.fft.ifft(t2_fft * ivar_fft.conj()).real
     b = n.fft.ifft(t_fft * data_fft.conj()).real
     
-    ii = n.arange(num_z)*npixstep
+    ii = zminpix+n.arange(num_z)*npixstep
     f = (a[ii]!=0)*b[ii]/(a[ii]+(a[ii]==0))
     zchi2arr = chi2_0 - a[ii]*f**2 # is this true ?????
     
@@ -155,14 +153,14 @@ class ZFinder:
         self.create_z_baseline(specloglam[0])
         if (self.zmin != None) and (self.zmax != None) and \
                 (self.zmax > self.zmin):
-            bounds_set = True
+            
             zminpix, zmaxpix = self.conv_zbounds()
             self.pixoffset = zminpix
             num_z = int(n.floor( (zmaxpix - zminpix) / npixstep ))
             zinds = zminpix + n.arange(num_z)*npixstep
             self.zbase = self.zbase[zinds]
         else:
-            bounds_set = False
+            zminpix = 0
             # Number of pixels to be fitted in redshift
             num_z = int(n.floor( (zself.origshape[-1] - specs.shape[-1]) /
                                 npixstep ))
@@ -242,18 +240,18 @@ class ZFinder:
                 func_args = []
                 for j in xrange(self.templates_flat.shape[0]):
                     if self.npoly>0 :
-                        arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"bounds_set":bounds_set,"flag_val_neg_model":flag_val_neg_model}
+                        arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"flag_val_neg_model":flag_val_neg_model}
                     else :
-                        arguments = {"j":j,"t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "chi2_0":self.sn2_data[i], "num_z":num_z, "npixstep":self.npixstep, "flag_val_neg_model":flag_val_neg_model}
+                        arguments = {"j":j,"t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "chi2_0":self.sn2_data[i], "num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix, "flag_val_neg_model":flag_val_neg_model}
                     func_args.append(arguments)
                     
                 
                 start=time.clock()                
                 pool = multiprocessing.Pool(self.nproc)
                 if self.npoly>0 :
-                    results = pool.map(_chi2, func_args)
+                    results = pool.map(_zchi2, func_args)
                 else :
-                    results = pool.map(_chi2_no_poly, func_args)
+                    results = pool.map(_zchi2_no_poly, func_args)
                 pool.close()
                 pool.join()
                 
@@ -278,10 +276,8 @@ class ZFinder:
         zchi2arr = n.reshape(zchi2arr, (specs.shape[0],) + self.origshape[:-1] +
                              (num_z,) )
         bestl = n.where(zchi2arr == n.min(zchi2arr))[-1][0]
-        if bounds_set:
-            thisz = ((10**(specloglam[0]))/self.tempwave[bestl+zminpix])-1
-        else:
-            thisz = ((10**(specloglam[0]))/self.tempwave[bestl])-1
+        thisz = ((10**(specloglam[0]))/self.tempwave[bestl+zminpix])-1
+        
         #return zchi2arr
         self.zchi2arr = zchi2arr
         #self.store_models(specs, ivar)
