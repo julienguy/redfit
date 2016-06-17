@@ -25,8 +25,11 @@ from redmonster.datamgr.io2 import read_ndArch, write_chi2arr
 
 # Assumes all templates live in $REDMONSTER_DIR/templates/
 
-def _func(arg) :
+def _chi2(arg) :
     return zchi2_single_template(**arg)
+
+def _chi2_no_poly(arg) :
+    return zchi2_single_template_no_poly(**arg)
 
 
 def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_pol, bvec_pol, chi2_0, chi2_null, num_z, npixstep, zminpix, bounds_set, flag_val_neg_model) :
@@ -66,6 +69,20 @@ def zchi2_single_template(j,poly_fft, t_fft, t2_fft, data_fft, ivar_fft, pmat_po
             zchi2arr[(l/npixstep)] = chi2_null
     return j,zchi2arr,zwarning
 
+def zchi2_single_template_no_poly(j,t_fft, t2_fft, data_fft, ivar_fft, chi2_0, num_z, npixstep, flag_val_neg_model) :
+    
+    a = n.fft.ifft(t2_fft * ivar_fft.conj()).real
+    b = n.fft.ifft(t_fft * data_fft.conj()).real
+    
+    ii = n.arange(num_z)*npixstep
+    f = (a[ii]!=0)*b[ii]/(a[ii]+(a[ii]==0))
+    zchi2arr = chi2_0 - a[ii]*f**2 # is this true ?????
+    
+    zwarning=n.zeros((num_z))
+    zchi2arr[f<0] = chi2_0
+    zwarning[f<0] = flag_val_neg_model
+    return j,zchi2arr,zwarning
+
 
 
 class ZFinder:
@@ -74,7 +91,10 @@ class ZFinder:
     def __init__(self, fname=None, npoly=None, zmin=None, zmax=None, nproc=1):
 
         self.fname = fname
-        self.npoly = npoly if npoly else 4
+        if npoly is not None :
+            self.npoly = npoly
+        else :
+            self.npoly = 4
         self.zmin = float(zmin)
         self.zmax = float(zmax)
         self.nproc = nproc
@@ -153,28 +173,37 @@ class ZFinder:
         zchi2arr = n.zeros((specs.shape[0], self.templates_flat.shape[0],
                             num_z))
         temp_zwarning = n.zeros(zchi2arr.shape)
-        # Compute poly terms, noting that they will stay fixed with
-        # the data - assumes data is passed in as shape (nfibers, npix)
-        polyarr = poly_array(self.npoly, specs.shape[1])
-        pmat = n.zeros( (self.npoly+1, self.npoly+1, self.fftnaxis1),
-                       dtype=float)
-        bvec = n.zeros( (self.npoly+1, self.fftnaxis1), dtype=float)
         
         # Pad data and SSPs to a power of 2 for faster FFTs
         data_pad = n.zeros(specs.shape[:-1] + (self.fftnaxis1,), dtype=float)
         data_pad[...,:specs.shape[-1]] = specs
         ivar_pad = n.zeros(ivar.shape[:-1] + (self.fftnaxis1,), dtype=float)
         ivar_pad[...,:specs.shape[-1]] = ivar
-        poly_pad = n.zeros((self.npoly, self.fftnaxis1), dtype=float)
-        poly_pad[...,:polyarr.shape[-1]] = polyarr
         
         # Pre-compute FFTs for use in convolutions
         data_fft = n.fft.fft(data_pad * ivar_pad)
         ivar_fft = n.fft.fft(ivar_pad)
-        poly_fft = n.zeros((ivar_pad.shape[0], self.npoly, self.fftnaxis1),
-                           dtype=complex)
-        for i in xrange(self.npoly):
-            poly_fft[:,i,:] = n.fft.fft(poly_pad[i] * ivar_pad)
+        
+        if self.npoly>0 :
+            # Compute poly terms, noting that they will stay fixed with
+            # the data - assumes data is passed in as shape (nfibers, npix)
+            polyarr = poly_array(self.npoly, specs.shape[1])
+            pmat = n.zeros( (self.npoly+1, self.npoly+1, self.fftnaxis1),
+                            dtype=float)
+            bvec = n.zeros( (self.npoly+1, self.fftnaxis1), dtype=float)
+        
+            # Pad to a power of 2 for faster FFTs
+            poly_pad = n.zeros((self.npoly, self.fftnaxis1), dtype=float)
+            poly_pad[...,:polyarr.shape[-1]] = polyarr
+            
+            # Pre-compute FFTs for use in convolutions
+            poly_fft = n.zeros((ivar_pad.shape[0], self.npoly, self.fftnaxis1),dtype=complex)
+            for i in xrange(self.npoly):
+                poly_fft[:,i,:] = n.fft.fft(poly_pad[i] * ivar_pad)
+            
+
+       
+        
         
         # Compute z for all fibers
         
@@ -189,34 +218,45 @@ class ZFinder:
                 self.zwarning[i] = int(self.zwarning[i]) | flag_val_unplugged
             else: # Otherwise, go ahead and do fit
 
-                for ipos in xrange(self.npoly):
-                    bvec[ipos+1] = n.sum( poly_pad[ipos] * data_pad[i] *
-                                          ivar_pad[i])
-                
-                
                 self.sn2_data.append (n.sum( (specs[i]**2)*ivar[i] ) )
-                for ipos in xrange(self.npoly):
-                    for jpos in xrange(self.npoly):
-                        pmat[ipos+1,jpos+1] = n.sum( poly_pad[ipos] *
-                                                    poly_pad[jpos] *ivar_pad[i]) # CAN GO FASTER HERE (BUT NOT LIMITING = 0.001475
                 
-                f_null = n.linalg.solve(pmat[1:,1:,0],bvec[1:,0])
-                self.f_nulls.append( f_null )
-                self.chi2_null.append( self.sn2_data[i] -
-                                      n.dot(n.dot(f_null,pmat[1:,1:,0]),f_null))
+                if self.npoly>0 :
+                    for ipos in xrange(self.npoly):
+                        bvec[ipos+1] = n.sum( poly_pad[ipos] * data_pad[i] *
+                                              ivar_pad[i])
+                    for ipos in xrange(self.npoly):
+                        for jpos in xrange(self.npoly):
+                            pmat[ipos+1,jpos+1] = n.sum( poly_pad[ipos] *
+                                                         poly_pad[jpos] *ivar_pad[i]) # CAN GO FASTER HERE (BUT NOT LIMITING = 0.001475
+                
+                    f_null = n.linalg.solve(pmat[1:,1:,0],bvec[1:,0])
+                    self.f_nulls.append( f_null )
+                    self.chi2_null.append( self.sn2_data[i] -
+                                           n.dot(n.dot(f_null,pmat[1:,1:,0]),f_null))
+                else :
+                    self.chi2_null.append( self.sn2_data[i] )
                 # print 'INFO Chi^2_null value is %s' % self.chi2_null[i]
                 # Loop over templates
                 # multiprocessing
+                
                 func_args = []
                 for j in xrange(self.templates_flat.shape[0]):
-                    arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"bounds_set":bounds_set,"flag_val_neg_model":flag_val_neg_model}
+                    if self.npoly>0 :
+                        arguments = {"j":j,"poly_fft":poly_fft[i], "t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "pmat_pol":pmat, "bvec_pol":bvec, "chi2_0":self.sn2_data[i], "chi2_null":self.chi2_null[i],"num_z":num_z, "npixstep":self.npixstep, "zminpix":zminpix,"bounds_set":bounds_set,"flag_val_neg_model":flag_val_neg_model}
+                    else :
+                        arguments = {"j":j,"t_fft":self.t_fft[j], "t2_fft":self.t2_fft[j], "data_fft":data_fft[i], "ivar_fft":ivar_fft[i], "chi2_0":self.sn2_data[i], "num_z":num_z, "npixstep":self.npixstep, "flag_val_neg_model":flag_val_neg_model}
                     func_args.append(arguments)
+                    
                 
                 start=time.clock()                
                 pool = multiprocessing.Pool(self.nproc)
-                results = pool.map(_func, func_args)
+                if self.npoly>0 :
+                    results = pool.map(_chi2, func_args)
+                else :
+                    results = pool.map(_chi2_no_poly, func_args)
                 pool.close()
                 pool.join()
+                
                 for result in results :
                     j                  = result[0]
                     zchi2arr[i,j]      = result[1]
@@ -225,7 +265,7 @@ class ZFinder:
                 stop=time.clock()
                 
                 
-                print "INFO fitted fiber %d/%d, chi2_null=%f, %d templates in %s , using %d procs in %f sec"%(i+1, specs.shape[0],self.chi2_null[i],self.templates_flat.shape[0],self.fname,self.nproc,stop-start)
+                print "INFO fitted fiber %d/%d, chi2_null=%f, %d templates in %s, npoly=%d, using %d procs in %f sec"%(i+1, specs.shape[0],self.chi2_null[i],self.templates_flat.shape[0],self.fname,self.npoly,self.nproc,stop-start)
                 
         
         # Use only neg_model flag from best fit model/redshift and add
