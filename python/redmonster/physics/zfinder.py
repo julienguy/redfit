@@ -207,7 +207,7 @@ class ZFinder:
         
         for i in xrange(specs.shape[0]): # Loop over fibers
 
-            start=time.clock()  
+            start=time.time()  
 
             #print 'INFO Fitting fiber %s of %s for template %s' % \
             #        (i+1, specs.shape[0], self.fname)
@@ -262,7 +262,7 @@ class ZFinder:
                     zchi2arr[i,j]      = result[1]
                     temp_zwarning[i,j] = result[2]
                 
-                stop=time.clock()
+                stop=time.time()
                 
                 print "INFO fitted fiber %d/%d, chi2_null=%f, %d templates in %s, npoly=%d, using %d procs in %f sec"%(i+1, specs.shape[0],self.chi2_null[i],self.templates_flat.shape[0],self.fname,self.npoly,self.nproc,stop-start)
         
